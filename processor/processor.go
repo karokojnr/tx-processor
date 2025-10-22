@@ -100,3 +100,15 @@ func (p *Processor) applyTransactions(ctx context.Context, txs []models.Transact
 
 	return nil
 }
+
+// Snapshot returns a copy of the current in-memory analytics
+func (p *Processor) Snapshot() map[string]models.UserAnalytics {
+	stats := make(map[string]models.UserAnalytics)
+	p.analyticsCache.Range(func(key, value any) bool {
+		userID := key.(string)
+		analytics := value.(*models.UserAnalytics)
+		stats[userID] = *analytics
+		return true
+	})
+	return stats
+}
