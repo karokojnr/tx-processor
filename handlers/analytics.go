@@ -2,13 +2,9 @@ package handlers
 
 import (
 	"fmt"
-	"strconv"
-	"tx-processor/models"
-
 	"net/http"
+	"strconv"
 )
-
-
 
 func (h *Handler) totalOrdersHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -16,38 +12,16 @@ func (h *Handler) totalOrdersHandler() http.HandlerFunc {
 
 		userID := r.URL.Query().Get("user_id")
 		if userID == "" {
-
 			writeErrorResponse(w, http.StatusBadRequest, "user_id parameter is required")
 			return
 		}
-		var analytics models.UserAnalytics
-		if !h.cfg.RedisConfig.RedisEnabled {
-			analyticsPtr, err := h.repo.UserAnalytics(ctx, userID)
-			if err != nil {
-				writeErrorResponse(w, http.StatusInternalServerError, "failed to get user analytics")
-				return
-			}
-			analytics = *analyticsPtr
-		}
 
-		cacheAnalytics, err := h.cache.Get(ctx, userID)
+		analytics, err := h.analyticsService.GetUserAnalytics(ctx, userID)
 		if err != nil {
-			writeErrorResponse(w, http.StatusInternalServerError, "failed to get user analytics from cache")
+			h.logger.Error("failed to get user analytics", "user_id", userID, "error", err)
+			writeErrorResponse(w, http.StatusInternalServerError, "failed to get user analytics")
 			return
 		}
-		if cacheAnalytics == nil {
-			analyticsPtr, err := h.repo.UserAnalytics(ctx, userID)
-			if err != nil {
-				writeErrorResponse(w, http.StatusInternalServerError, "failed to get user analytics")
-				return
-			}
-			if err := h.cache.Set(ctx, *analyticsPtr); err != nil {
-				writeErrorResponse(w, http.StatusInternalServerError, "failed to set user analytics to cache")
-				return
-			}
-			analytics = *analyticsPtr
-		}
-		cacheAnalytics = &analytics
 
 		response := struct {
 			UserID      string `json:"user_id"`
@@ -60,7 +34,8 @@ func (h *Handler) totalOrdersHandler() http.HandlerFunc {
 		}
 
 		if err := writeJSONResponse(w, http.StatusOK, response); err != nil {
-			writeErrorResponse(w, http.StatusInternalServerError, "Failed to encode response")
+			h.logger.Error("failed to write response", "error", err)
+			writeErrorResponse(w, http.StatusInternalServerError, "failed to encode response")
 		}
 	}
 }
@@ -75,34 +50,12 @@ func (h *Handler) totalSpendingsHandler() http.HandlerFunc {
 			return
 		}
 
-		var analytics models.UserAnalytics
-		if !h.cfg.RedisConfig.RedisEnabled {
-			analyticsPtr, err := h.repo.UserAnalytics(ctx, userID)
-			if err != nil {
-				writeErrorResponse(w, http.StatusInternalServerError, "failed to get user analytics")
-				return
-			}
-			analytics = *analyticsPtr
-		}
-
-		cacheAnalytics, err := h.cache.Get(ctx, userID)
+		analytics, err := h.analyticsService.GetUserAnalytics(ctx, userID)
 		if err != nil {
-			writeErrorResponse(w, http.StatusInternalServerError, "failed to get user analytics from cache")
+			h.logger.Error("failed to get user analytics", "user_id", userID, "error", err)
+			writeErrorResponse(w, http.StatusInternalServerError, "failed to get user analytics")
 			return
 		}
-		if cacheAnalytics == nil {
-			analyticsPtr, err := h.repo.UserAnalytics(ctx, userID)
-			if err != nil {
-				writeErrorResponse(w, http.StatusInternalServerError, "failed to get user analytics")
-				return
-			}
-			if err := h.cache.Set(ctx, *analyticsPtr); err != nil {
-				writeErrorResponse(w, http.StatusInternalServerError, "failed to set user analytics to cache")
-				return
-			}
-			analytics = *analyticsPtr
-		}
-		cacheAnalytics = &analytics
 
 		response := struct {
 			UserID     string  `json:"user_id"`
@@ -111,50 +64,104 @@ func (h *Handler) totalSpendingsHandler() http.HandlerFunc {
 		}{
 			UserID:     userID,
 			TotalSpent: analytics.TotalSpent,
-			Message:    fmt.Sprintf("User %s has spent a total of %.2f", userID, analytics.TotalSpent),
+			Message:    fmt.Sprintf("User %s has spent $%.2f", userID, analytics.TotalSpent),
 		}
 
 		if err := writeJSONResponse(w, http.StatusOK, response); err != nil {
-			writeErrorResponse(w, http.StatusInternalServerError, "Failed to encode response")
+			h.logger.Error("failed to write response", "error", err)
+			writeErrorResponse(w, http.StatusInternalServerError, "failed to encode response")
 		}
 	}
 }
 
 func (h *Handler) topUsersHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		limitParam := r.URL.Query().Get("limit")
-		limit := 10
-		if limitParam != "" {
-			l, err := strconv.Atoi(limitParam)
-			if err != nil || l <= 0 {
-				writeErrorResponse(w, http.StatusBadRequest, "limit must be a positive integer")
-				return
+		ctx := r.Context()
+
+		limitStr := r.URL.Query().Get("limit")
+		limit := 10 // default limit
+		if limitStr != "" {
+			if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
+				limit = parsedLimit
 			}
-			limit = l
 		}
 
-		users, err := h.repo.TopUsers(r.Context(), limit)
+		users, err := h.analyticsService.GetTopUsers(ctx, limit)
 		if err != nil {
+			h.logger.Error("failed to get top users", "limit", limit, "error", err)
 			writeErrorResponse(w, http.StatusInternalServerError, "failed to get top users")
 			return
 		}
 
-		if err := writeJSONResponse(w, http.StatusOK, users); err != nil {
-			writeErrorResponse(w, http.StatusInternalServerError, "Failed to encode response")
+		response := struct {
+			Users   []interface{} `json:"users"`
+			Count   int           `json:"count"`
+			Message string        `json:"message"`
+		}{
+			Users:   make([]interface{}, len(users)),
+			Count:   len(users),
+			Message: fmt.Sprintf("Retrieved top %d users by orders", len(users)),
+		}
+
+		for i, user := range users {
+			response.Users[i] = struct {
+				UserID      string  `json:"user_id"`
+				TotalOrders int     `json:"total_orders"`
+				TotalSpent  float64 `json:"total_spent"`
+			}{
+				UserID:      user.UserID,
+				TotalOrders: user.TotalOrders,
+				TotalSpent:  user.TotalSpent,
+			}
+		}
+
+		if err := writeJSONResponse(w, http.StatusOK, response); err != nil {
+			h.logger.Error("failed to write response", "error", err)
+			writeErrorResponse(w, http.StatusInternalServerError, "failed to encode response")
 		}
 	}
 }
 
 func (h *Handler) anomaliesHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		anomalies, err := h.repo.UserAnomalies(r.Context())
+		ctx := r.Context()
+
+		anomalies, err := h.analyticsService.DetectAnomalies(ctx)
 		if err != nil {
+			h.logger.Error("failed to detect anomalies", "error", err)
 			writeErrorResponse(w, http.StatusInternalServerError, "failed to detect anomalies")
 			return
 		}
 
-		if err := writeJSONResponse(w, http.StatusOK, anomalies); err != nil {
-			writeErrorResponse(w, http.StatusInternalServerError, "Failed to encode response")
+		response := struct {
+			Anomalies []interface{} `json:"anomalies"`
+			Count     int           `json:"count"`
+			Message   string        `json:"message"`
+		}{
+			Anomalies: make([]interface{}, len(anomalies)),
+			Count:     len(anomalies),
+			Message:   fmt.Sprintf("Detected %d anomalous users", len(anomalies)),
+		}
+
+		for i, anomaly := range anomalies {
+			response.Anomalies[i] = struct {
+				UserID          string  `json:"user_id"`
+				TotalOrders     int     `json:"total_orders"`
+				TotalSpent      float64 `json:"total_spent"`
+				OrderAnomaly    bool    `json:"order_anomaly"`
+				SpendingAnomaly bool    `json:"spending_anomaly"`
+			}{
+				UserID:          anomaly.UserID,
+				TotalOrders:     anomaly.TotalOrders,
+				TotalSpent:      anomaly.TotalSpent,
+				OrderAnomaly:    anomaly.OrderAnomaly,
+				SpendingAnomaly: anomaly.SpendingAnomaly,
+			}
+		}
+
+		if err := writeJSONResponse(w, http.StatusOK, response); err != nil {
+			h.logger.Error("failed to write response", "error", err)
+			writeErrorResponse(w, http.StatusInternalServerError, "failed to encode response")
 		}
 	}
 }

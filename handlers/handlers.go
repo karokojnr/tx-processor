@@ -4,25 +4,22 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"tx-processor/cache"
 	"tx-processor/config"
 	"tx-processor/logger"
-	"tx-processor/repository"
+	"tx-processor/services"
 )
 
 type Handler struct {
-	repo   repository.Analytics
-	cache  cache.AnalyticsCache
-	cfg    *config.Config
-	logger logger.Logger
+	analyticsService *services.AnalyticsService
+	cfg              *config.Config
+	logger           logger.Logger
 }
 
-func NewHandler(repo repository.Analytics, cache cache.AnalyticsCache, cfg *config.Config, logger logger.Logger) *Handler {
+func NewHandler(analyticsService *services.AnalyticsService, cfg *config.Config, logger logger.Logger) *Handler {
 	return &Handler{
-		repo:   repo,
-		cache:  cache,
-		cfg:    cfg,
-		logger: logger,
+		analyticsService: analyticsService,
+		cfg:              cfg,
+		logger:           logger,
 	}
 }
 

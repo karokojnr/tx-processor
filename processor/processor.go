@@ -8,19 +8,19 @@ import (
 	"sync"
 	"tx-processor/config"
 	"tx-processor/models"
-	"tx-processor/repository"
+	"tx-processor/services"
 )
 
 type Processor struct {
 	cfg            *config.Config
 	logger         *slog.Logger
-	repo           repository.Analytics
+	repo           services.Analytics
 	analyticsCache sync.Map // Thread-safe map for real-time data
 	userMu         sync.Map // Per-user locks to prevent races
 
 }
 
-func NewProcessor(cfg *config.Config, logger *slog.Logger, repo repository.Analytics) *Processor {
+func NewProcessor(cfg *config.Config, logger *slog.Logger, repo services.Analytics) *Processor {
 	return &Processor{
 		cfg:            cfg,
 		logger:         logger,

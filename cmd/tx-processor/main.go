@@ -15,6 +15,7 @@ import (
 	"tx-processor/logger"
 	"tx-processor/repository"
 	"tx-processor/server"
+	"tx-processor/services"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -51,7 +52,10 @@ func run() error {
 	analyticsCache := rds.NewRedisAnalyticsCache(redisClient)
 	analyticsRepo := repository.NewAnalyticsRepo(database)
 
-	handler := handlers.NewHandler(analyticsRepo, analyticsCache, cfg, loggerWrapper)
+	// Create analytics service
+	analyticsService := services.NewAnalyticsService(analyticsRepo, analyticsCache)
+
+	handler := handlers.NewHandler(analyticsService, cfg, loggerWrapper)
 
 	serverCfg := server.Config{
 		Port:   cfg.Port,

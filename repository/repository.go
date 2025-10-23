@@ -9,14 +9,6 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-// Analytics defines methods for user analytics operations
-type Analytics interface {
-	UpdateAnalytics(ctx context.Context, updates map[string]*models.UserAnalytics) error
-	UserAnalytics(ctx context.Context, userID string) (*models.UserAnalytics, error)
-	TopUsers(ctx context.Context, limit int) ([]models.UserAnalytics, error)
-	UserAnomalies(ctx context.Context) ([]models.AnomalyUser, error)
-}
-
 // AnalyticsRepo provides methods for interacting with user analytics data.
 // It implements Analytics interface
 type AnalyticsRepo struct {
