@@ -6,20 +6,23 @@ import (
 	"net/http"
 	"tx-processor/cache"
 	"tx-processor/config"
+	"tx-processor/logger"
 	"tx-processor/repository"
 )
 
 type Handler struct {
-	repo  repository.Analytics
-	cache cache.AnalyticsCache
-	cfg   *config.Config
+	repo   repository.Analytics
+	cache  cache.AnalyticsCache
+	cfg    *config.Config
+	logger logger.Logger
 }
 
-func NewHandler(repo repository.Analytics, cache cache.AnalyticsCache, cfg *config.Config) *Handler {
+func NewHandler(repo repository.Analytics, cache cache.AnalyticsCache, cfg *config.Config, logger logger.Logger) *Handler {
 	return &Handler{
-		repo:  repo,
-		cache: cache,
-		cfg:   cfg,
+		repo:   repo,
+		cache:  cache,
+		cfg:    cfg,
+		logger: logger,
 	}
 }
 
@@ -51,12 +54,4 @@ func writeErrorResponse(w http.ResponseWriter, status int, message string) error
 
 	return writeJSONResponse(w, status, errResp)
 
-}
-
-func readJSON[T any](r *http.Request) (T, error) {
-	var data T
-	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
-		return data, fmt.Errorf("decode json: %w", err)
-	}
-	return data, nil
 }
