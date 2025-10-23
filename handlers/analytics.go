@@ -3,39 +3,51 @@ package handlers
 import (
 	"fmt"
 	"strconv"
-	"tx-processor/repository"
+	"tx-processor/models"
 
 	"net/http"
 )
 
-type AnalyticsHandler struct {
-	repo repository.Analytics
-}
 
-func NewAnalyticsHandler(repo repository.Analytics) *AnalyticsHandler {
-	return &AnalyticsHandler{repo: repo}
-}
 
-func (h *AnalyticsHandler) RegisterRoutes(r *http.ServeMux) {
-	r.HandleFunc("/total_orders", h.totalOrdersHandler())
-	r.HandleFunc("/total_spendings", h.totalSpendingsHandler())
-	r.HandleFunc("/top_users", h.topUsersHandler())
-	r.HandleFunc("/anomalies", h.anomaliesHandler())
-}
-
-func (h *AnalyticsHandler) totalOrdersHandler() http.HandlerFunc {
+func (h *Handler) totalOrdersHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
 		userID := r.URL.Query().Get("user_id")
 		if userID == "" {
 
 			writeErrorResponse(w, http.StatusBadRequest, "user_id parameter is required")
 			return
 		}
-		analytics, err := h.repo.UserAnalytics(r.Context(), userID)
+		var analytics models.UserAnalytics
+		if !h.cfg.RedisConfig.RedisEnabled {
+			analyticsPtr, err := h.repo.UserAnalytics(ctx, userID)
+			if err != nil {
+				writeErrorResponse(w, http.StatusInternalServerError, "failed to get user analytics")
+				return
+			}
+			analytics = *analyticsPtr
+		}
+
+		cacheAnalytics, err := h.cache.Get(ctx, userID)
 		if err != nil {
-			writeErrorResponse(w, http.StatusInternalServerError, "failed to get user analytics")
+			writeErrorResponse(w, http.StatusInternalServerError, "failed to get user analytics from cache")
 			return
 		}
+		if cacheAnalytics == nil {
+			analyticsPtr, err := h.repo.UserAnalytics(ctx, userID)
+			if err != nil {
+				writeErrorResponse(w, http.StatusInternalServerError, "failed to get user analytics")
+				return
+			}
+			if err := h.cache.Set(ctx, *analyticsPtr); err != nil {
+				writeErrorResponse(w, http.StatusInternalServerError, "failed to set user analytics to cache")
+				return
+			}
+			analytics = *analyticsPtr
+		}
+		cacheAnalytics = &analytics
 
 		response := struct {
 			UserID      string `json:"user_id"`
@@ -53,18 +65,44 @@ func (h *AnalyticsHandler) totalOrdersHandler() http.HandlerFunc {
 	}
 }
 
-func (h *AnalyticsHandler) totalSpendingsHandler() http.HandlerFunc {
+func (h *Handler) totalSpendingsHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
 		userID := r.URL.Query().Get("user_id")
 		if userID == "" {
 			writeErrorResponse(w, http.StatusBadRequest, "user_id parameter is required")
 			return
 		}
-		analytics, err := h.repo.UserAnalytics(r.Context(), userID)
+
+		var analytics models.UserAnalytics
+		if !h.cfg.RedisConfig.RedisEnabled {
+			analyticsPtr, err := h.repo.UserAnalytics(ctx, userID)
+			if err != nil {
+				writeErrorResponse(w, http.StatusInternalServerError, "failed to get user analytics")
+				return
+			}
+			analytics = *analyticsPtr
+		}
+
+		cacheAnalytics, err := h.cache.Get(ctx, userID)
 		if err != nil {
-			writeErrorResponse(w, http.StatusInternalServerError, "failed to get user analytics")
+			writeErrorResponse(w, http.StatusInternalServerError, "failed to get user analytics from cache")
 			return
 		}
+		if cacheAnalytics == nil {
+			analyticsPtr, err := h.repo.UserAnalytics(ctx, userID)
+			if err != nil {
+				writeErrorResponse(w, http.StatusInternalServerError, "failed to get user analytics")
+				return
+			}
+			if err := h.cache.Set(ctx, *analyticsPtr); err != nil {
+				writeErrorResponse(w, http.StatusInternalServerError, "failed to set user analytics to cache")
+				return
+			}
+			analytics = *analyticsPtr
+		}
+		cacheAnalytics = &analytics
 
 		response := struct {
 			UserID     string  `json:"user_id"`
@@ -82,7 +120,7 @@ func (h *AnalyticsHandler) totalSpendingsHandler() http.HandlerFunc {
 	}
 }
 
-func (h *AnalyticsHandler) topUsersHandler() http.HandlerFunc {
+func (h *Handler) topUsersHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		limitParam := r.URL.Query().Get("limit")
 		limit := 10
@@ -107,7 +145,7 @@ func (h *AnalyticsHandler) topUsersHandler() http.HandlerFunc {
 	}
 }
 
-func (h *AnalyticsHandler) anomaliesHandler() http.HandlerFunc {
+func (h *Handler) anomaliesHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		anomalies, err := h.repo.UserAnomalies(r.Context())
 		if err != nil {
