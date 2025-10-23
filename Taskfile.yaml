@@ -1,0 +1,92 @@
+version: "3"
+
+vars:
+  BINARY_NAME: tx-processor
+  SAMPLE_FILE: sample_transactions.json
+
+tasks:
+  setup:
+    desc: Set up the complete development environment
+    deps: [deps, docker-up]
+    cmds:
+      - echo "Waiting for database to start..."
+      - sleep 5
+      - task: generate-data
+      - echo "Setup complete! You can now run 'task process' to test the system."
+
+  process:
+    desc: Process transactions using default settings
+    cmds:
+      - echo "Processing with default settings..."
+      - go run cmd/transaction-processor/cli/main.go -file={{.SAMPLE_FILE}} -workers=10 -batch=500
+
+  process-conservative:
+    desc: Process transactions with conservative settings for slower systems
+    cmds:
+      - echo "Processing with conservative settings..."
+      - go run cmd/transaction-processor/cli/main.go -file={{.SAMPLE_FILE}} -workers=5 -batch=250
+
+  process-aggressive:
+    desc: Process transactions with aggressive settings for powerful systems
+    cmds:
+      - echo "Processing with aggressive settings..."
+      - go run cmd/transaction-processor/cli/main.go -file={{.SAMPLE_FILE}} -workers=20 -batch=1000
+
+  benchmark:
+    desc: Run performance benchmarks across multiple configurations
+    deps: [generate-data]
+    cmds:
+      - echo "Starting performance benchmark..."
+      - echo ""
+      - echo "=== Conservative Configuration ==="
+      - time task process-conservative
+      - echo ""
+      - echo "=== Default Configuration ==="
+      - time task process
+      - echo ""
+      - echo "=== Aggressive Configuration ==="
+      - time task process-aggressive
+      - echo ""
+      - echo "Benchmark complete. Review results to determine optimal configuration."
+
+  generate-data:
+    desc: Generate sample transaction data
+    cmds:
+      - echo "Generating 1 million sample transactions..."
+      - go run scripts/generate_test_data.go 1000000 {{.SAMPLE_FILE}}
+      - echo "Sample data generated:{{.SAMPLE_FILE}}"
+
+  run-server:
+    desc: Start the analytics API server
+    cmds:
+      - echo "Starting API server on :8080..."
+      - echo "Once the server is running, test endpoints after processing data."
+      - go run cmd/transaction-processor/server/main.go
+
+  api-test:
+    desc: Test API endpoints (run after processing data)
+    cmds:
+      - echo "Testing API endpoints..."
+      - echo "Health check:"
+      - curl -s "http://localhost:8080/health" | jq .
+      - echo -e "\nUser orders:"
+      - curl -s "http://localhost:8080/analytics/total_orders?user_id=user_1" | jq .
+      - echo -e "\nUser spending:"
+      - curl -s "http://localhost:8080/analytics/total_spending?user_id=user_1" | jq .
+      - echo -e "\nTop users:"
+      - curl -s "http://localhost:8080/analytics/top_users" | jq .
+
+  docker-up:
+    desc: Start PostgreSQL and Redis containers
+    cmds:
+      - docker compose up -d
+      - echo "Database and cache services starting..."
+
+  docker-down:
+    desc: Stop all Docker containers
+    cmds:
+      - docker compose down
+      - echo "All services stopped."
+
+  clean:
+    desc: Clean up generated files, binaries, and logs
